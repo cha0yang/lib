@@ -1,7 +1,6 @@
 package ttlcache
 
 import (
-	"log"
 	"time"
 )
 
@@ -67,9 +66,9 @@ func (c *shard[K, V]) process() {
 			c.mapping[input.k] = c.index
 			c.timeWheel[c.index][input.k] = input.v
 		case <-ticker.C:
-			expireIndex := c.index - 1
-			if expireIndex == -1 {
-				expireIndex = c.maxIndex
+			expireIndex := c.index + 1
+			if expireIndex > c.maxIndex {
+				expireIndex = 0
 			}
 
 			if expired := c.timeWheel[expireIndex]; len(expired) > 0 {
@@ -80,13 +79,9 @@ func (c *shard[K, V]) process() {
 				}
 
 				c.expireFn(expired)
-
-				log.Println("shard expired", time.Now(), c.id, len(expired))
 			}
 
-			if c.index++; c.index > c.maxIndex {
-				c.index = 0
-			}
+			c.index = expireIndex
 		}
 	}
 }

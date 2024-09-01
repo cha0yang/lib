@@ -2,39 +2,52 @@ package ttlcache
 
 import (
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/cespare/xxhash/v2"
 )
 
+var (
+	generator = &atomic.Int64{}
+	counter   = &atomic.Int64{}
+	done      = &atomic.Bool{}
+)
+
+func set(c *Cache[string, int64], dur time.Duration) {
+	defer done.Store(true)
+
+	end := time.Now().Add(dur)
+	for time.Now().Before(end) {
+		n := generator.Add(1)
+		c.Set(strconv.FormatInt(n, 10), n, false)
+	}
+}
+
+func hasher(k string) uint64 {
+	return xxhash.Sum64String(k)
+}
+
 func Test1(t *testing.T) {
-	hasher := func(k string) uint64 {
-		return 0
+	expireFn := func(m map[string]int64) {
+		counter.Add(int64(len(m)))
 	}
 
-	count := 0
-	expireFn := func(m map[string]int) {
-		count += len(m)
-	}
-
-	c, err := NewCache[string, int](time.Second, time.Millisecond*100, hasher, expireFn)
-
+	c, err := NewCache[string, int64](time.Second*20, time.Millisecond*100, hasher, expireFn)
 	if err != nil {
 		t.Log(err)
 		return
 	}
 
-	go func() {
-		for i := 0; i < 100; i++ {
-			c.Set(strconv.Itoa(i), i, false)
-			time.Sleep(time.Millisecond)
+	go set(c, time.Second*10)
+
+	for range time.Tick(time.Second) {
+		x1, x2 := generator.Load(), counter.Load()
+		t.Log(time.Now(), x1, x2)
+
+		if x1 == x2 && done.Load() {
+			return
 		}
-	}()
-
-	time.Sleep(time.Millisecond * 500)
-
-	t.Log("======", count)
-}
-
-func Benchmark1(b *testing.B) {
-
+	}
 }
